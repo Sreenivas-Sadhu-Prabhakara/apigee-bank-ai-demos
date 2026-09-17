@@ -123,7 +123,7 @@ document.querySelector('.main-nav').addEventListener('click', event => {
 
 document.addEventListener('click', async event => {
   const downloadPage = event.target.closest('[data-download-html]');
-  if (downloadPage && location.protocol === 'file:') {
+  if (downloadPage && (location.protocol === 'file:' || downloadPage.getAttribute('href') === '#/overview')) {
     event.preventDefault();
     const blob = new Blob(['<!doctype html>\n' + document.documentElement.outerHTML], {type:'text/html'});
     const url = URL.createObjectURL(blob);

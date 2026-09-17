@@ -49,6 +49,11 @@ try{
   assert(!content.includes('src="assets/app.js"'));
   const links=await page.locator('a[href^="downloads/"]').evaluateAll(nodes=>[...new Set(nodes.map(n=>n.getAttribute('href')))]);
   for(const href of links){const response=await context.request.get(new URL(href,base).href);assert.equal(response.status(),200,href);}
+  const standalonePage=await context.newPage();
+  await standalonePage.goto(new URL('downloads/banking-ai-playbook.html',base).href);
+  const [standaloneDownload]=await Promise.all([standalonePage.waitForEvent('download'),standalonePage.locator('.topbar-download').click()]);
+  assert.equal(standaloneDownload.suggestedFilename(),'banking-ai-playbook.html');
+  await standalonePage.close();
   await page.setViewportSize({width:390,height:844});
   await page.goto(base+'#/overview');
   await page.locator('[data-page="overview"]').waitFor({state:'visible'});
