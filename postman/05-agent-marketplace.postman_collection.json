@@ -835,9 +835,9 @@
               "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
               "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
               "pm.expect(j.result.isError).not.to.eql(true);",
-              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
-              "pm.collectionVariables.set(\"mcp_reconciliation_id\", data.id);",
-              "pm.test(\"Two matched invoices\", () => pm.expect(data.matches.length).to.eql(2));"
+              "const toolData = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.collectionVariables.set(\"mcp_reconciliation_id\", toolData.id);",
+              "pm.test(\"Two matched invoices\", () => pm.expect(toolData.matches.length).to.eql(2));"
             ]
           }
         }
@@ -954,9 +954,9 @@
               "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
               "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
               "pm.expect(j.result.isError).not.to.eql(true);",
-              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
-              "pm.test(\"Correct batch amount\", () => pm.expect(data.total_minor).to.eql(2000000));",
-              "pm.collectionVariables.set(\"mcp_batch_id\", data.id);"
+              "const toolData = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.test(\"Correct batch amount\", () => pm.expect(toolData.total_minor).to.eql(2000000));",
+              "pm.collectionVariables.set(\"mcp_batch_id\", toolData.id);"
             ]
           }
         }
@@ -1015,9 +1015,9 @@
               "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
               "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
               "pm.expect(j.result.isError).not.to.eql(true);",
-              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
-              "pm.test(\"Correct batch amount\", () => pm.expect(data.total_minor).to.eql(2000000));",
-              "pm.test(\"Same batch\", () => pm.expect(data.id).to.eql(pm.collectionVariables.get(\"mcp_batch_id\")));"
+              "const toolData = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.test(\"Correct batch amount\", () => pm.expect(toolData.total_minor).to.eql(2000000));",
+              "pm.test(\"Same batch\", () => pm.expect(toolData.id).to.eql(pm.collectionVariables.get(\"mcp_batch_id\")));"
             ]
           }
         }
