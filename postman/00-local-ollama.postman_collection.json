@@ -1,0 +1,139 @@
+{
+  "info": {
+    "name": "00 Local Ollama — existing Qwen and Gemma",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "These requests target the already installed local Ollama API and do not depend on the banking demo services. Allow a model-loading timeout in Postman.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "List installed models",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{ollama_url}}/api/tags"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Qwen installed\", () => pm.expect(j.models.map(x=>x.name)).to.include(\"qwen-dev:latest\"));",
+              "pm.test(\"Gemma installed\", () => pm.expect(j.models.map(x=>x.name)).to.include(\"gemma3:12b\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inspect Qwen capabilities",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{ollama_url}}/api/show",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"model\": \"qwen-dev:latest\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Capabilities returned\", () => pm.expect(j.capabilities).to.be.an(\"array\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Qwen structured JSON smoke check",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{ollama_url}}/api/chat",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"model\": \"qwen-dev:latest\",\n  \"stream\": false,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Return a JSON object with action set to list_cards. This is a format check only; do not execute anything.\"\n    }\n  ],\n  \"format\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"action\": {\n        \"type\": \"string\",\n        \"enum\": [\n          \"list_cards\"\n        ]\n      }\n    },\n    \"required\": [\n      \"action\"\n    ],\n    \"additionalProperties\": false\n  },\n  \"options\": {\n    \"temperature\": 0,\n    \"num_predict\": 48\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Complete JSON action\", () => {pm.expect(j.done).to.eql(true);pm.expect(JSON.parse(j.message.content)).to.eql({action:\"list_cards\"});});",
+              "pm.test(\"Actual usage returned\", () => pm.expect(j.eval_count).to.be.a(\"number\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gemma real response smoke check",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{ollama_url}}/api/chat",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"model\": \"gemma3:12b\",\n  \"stream\": false,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Explain in one short sentence why a banking app asks for confirmation before freezing a card.\"\n    }\n  ],\n  \"options\": {\n    \"temperature\": 0,\n    \"num_predict\": 64\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Complete answer\", () => {pm.expect(j.done).to.eql(true);pm.expect(j.message.content).to.be.a(\"string\").and.not.empty;});",
+              "pm.test(\"Actual usage returned\", () => pm.expect(j.prompt_eval_count).to.be.a(\"number\"));"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

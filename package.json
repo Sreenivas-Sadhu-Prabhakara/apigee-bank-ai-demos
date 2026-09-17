@@ -1,0 +1,17 @@
+{
+  "name": "apigee-bank-ai-playbook",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A static implementation playbook for five Apigee banking AI demos",
+  "scripts": {
+    "build": "node site/build.mjs",
+    "preview": "node site/serve.mjs",
+    "test:site": "node site/check.mjs"
+  },
+  "devDependencies": {
+    "highlight.js": "11.12.0",
+    "marked": "18.0.13",
+    "playwright": "1.63.0"
+  }
+}

@@ -1,0 +1,531 @@
+{
+  "info": {
+    "name": "03 Fraud investigation — evidence and screening",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Tests mock investigation APIs and independent export denial. Set screening_mode=mock for deterministic fixture screening or model-armor for actual screening results.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "00 Create isolated synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario\": \"fraud\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.expect(j.session_id).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"session_id\", j.session_id);",
+              "for (const [name, c] of Object.entries(j.credentials)) {",
+              "  pm.collectionVariables.set(name + \"_token\", c.access_token);",
+              "  pm.collectionVariables.set(name + \"_key\", c.api_key);",
+              "}",
+              "pm.collectionVariables.set(\"quota_denied\", \"false\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read case",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read case/transactions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/transactions"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read case/signals",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/signals"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read case/notes",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/notes"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Unassigned analyst denied",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_other_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_other_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([404]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"RESOURCE_NOT_FOUND\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Screen allowed note",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/screen",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"item_id\": \"note-001\",\n  \"text\": \"Customer reports replacing their phone yesterday.\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Allowed note\", () => pm.expect(j.data.action).to.eql(\"ALLOW\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save evidence-linked brief",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "brief-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/briefs",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"New device and beneficiary require verification\",\n  \"findings\": [\n    {\n      \"text\": \"A new device was observed before the payment.\",\n      \"evidence_ids\": [\n        \"signal-001\",\n        \"ftxn-002\"\n      ]\n    },\n    {\n      \"text\": \"The customer reportedly replaced their phone.\",\n      \"evidence_ids\": [\n        \"note-001\"\n      ]\n    }\n  ],\n  \"unknowns\": [\n    \"Payment purpose and customer authorization are unverified.\"\n  ],\n  \"recommended_next_steps\": [\n    \"Contact the customer through an established bank channel.\"\n  ],\n  \"excluded_evidence_ids\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"brief_id\", j.data.id);",
+              "pm.test(\"Draft only\", () => pm.expect(j.data.status).to.eql(\"DRAFT\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read brief",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/briefs/{{brief_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Two findings\", () => pm.expect(j.data.findings.length).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presenter fault: malicious_note = true",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/faults",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fault\": \"malicious_note\",\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read injected note",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/investigations/cases/case-001/notes"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "const note = j.data.notes.find(x => x.id === \"note-003\");",
+              "pm.test(\"Attack fixture exists\", () => pm.expect(note).to.be.an(\"object\"));",
+              "pm.collectionVariables.set(\"attack_body\", JSON.stringify({item_id:note.id,text:note.text}));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Screen malicious note — inspect actual engine",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/screen",
+        "body": {
+          "mode": "raw",
+          "raw": "{{attack_body}}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,422]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.environment.get(\"screening_mode\") === \"mock\") {",
+              "  pm.test(\"Fixture screening blocks injection\", () => {",
+              "    pm.expect(pm.response.code).to.eql(422);",
+              "    pm.expect(j.error.code).to.eql(\"SAFETY_BLOCK\");",
+              "    pm.expect(j.error.details.engine).to.eql(\"mock\");",
+              "  });",
+              "} else {",
+              "  pm.test(\"Actual screening result preserved\", () => {",
+              "    if (pm.response.code === 200) pm.expect(j.data.action).to.eql(\"ALLOW\");",
+              "    else pm.expect(j.error.code).to.eql(\"SAFETY_BLOCK\");",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Independent forbidden export",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{investigator_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{investigator_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "export-denied"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/customer-exports",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

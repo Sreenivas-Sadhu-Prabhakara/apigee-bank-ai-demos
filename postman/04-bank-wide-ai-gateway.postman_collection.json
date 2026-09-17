@@ -1,0 +1,902 @@
+{
+  "info": {
+    "name": "04 AI gateway — routing, fallback, usage",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Default model_mode=mock provides deterministic quota checks. With model_mode=ollama, token counts vary; calibrate quota/window and observe an actual 429 separately. Fault flags select logical routes; they must not stop Ollama.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "00 Create isolated synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario\": \"gateway\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.expect(j.session_id).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"session_id\", j.session_id);",
+              "for (const [name, c] of Object.entries(j.credentials)) {",
+              "  pm.collectionVariables.set(name + \"_token\", c.access_token);",
+              "  pm.collectionVariables.set(name + \"_key\", c.api_key);",
+              "}",
+              "pm.collectionVariables.set(\"quota_denied\", \"false\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support first answer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"No fallback\", () => pm.expect(j.gateway.fallback_used).to.eql(false));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support cannot request engineering route",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"code_help\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Explain safe request retries.\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"MODEL_ROUTE_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presenter fault: primary_model_503 = true",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/faults",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fault\": \"primary_model_503\",\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support fallback answer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Fallback used\", () => pm.expect(j.gateway.fallback_used).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presenter fault: primary_model_503 = false",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/faults",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fault\": \"primary_model_503\",\n  \"enabled\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 1",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 2",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 3",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 4",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 5",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 6",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 7",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consume support allowance 8",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"public_faq\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"How do I report a lost card?\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200,429]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "if (pm.response.code === 429) {",
+              "  pm.collectionVariables.set(\"quota_denied\", \"true\");",
+              "  pm.test(\"Quota denial code\", () => pm.expect(j.error.code).to.eql(\"TOKEN_QUOTA_EXCEEDED\"));",
+              "}",
+              "if (pm.environment.get(\"model_mode\") === \"mock\") pm.test(\"Observed quota enforcement\", () => pm.expect(pm.collectionVariables.get(\"quota_denied\")).to.eql(\"true\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Engineering remains available",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{engineering_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{engineering_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"code_help\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Explain safe request retries.\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Non-empty answer\", () => pm.expect(j.text).to.be.a(\"string\").and.not.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents remain available",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{documents_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{documents_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"document_summary\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Summarize the synthetic bank policy.\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Non-empty answer\", () => pm.expect(j.text).to.be.a(\"string\").and.not.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Observe support usage",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{support_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{support_app_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/usage"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Usage recorded\", () => pm.expect(j.data.observed_total_tokens).to.be.above(0));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presenter fault: primary_model_503 = true",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/faults",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fault\": \"primary_model_503\",\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presenter fault: secondary_model_503 = true",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/faults",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fault\": \"secondary_model_503\",\n  \"enabled\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Both targets unavailable",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{engineering_app_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{engineering_app_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{gateway_url}}/ai/v1/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"use_case\": \"code_help\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Explain safe request retries.\"\n    }\n  ],\n  \"tools\": [],\n  \"max_output_tokens\": 200,\n  \"stream\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([503]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"MODEL_UNAVAILABLE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

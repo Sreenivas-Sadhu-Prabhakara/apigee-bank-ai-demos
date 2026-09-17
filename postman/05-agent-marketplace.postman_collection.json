@@ -1,0 +1,1066 @@
+{
+  "info": {
+    "name": "05 Marketplace — REST and MCP",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "First verify REST mocks, then MCP initialization, discovery, permissions, and idempotent dispatch. Adapter tool names follow the guide; native deployments must map their discovered names before running the MCP section.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "00 Create isolated synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario\": \"marketplace\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.expect(j.session_id).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"session_id\", j.session_id);",
+              "for (const [name, c] of Object.entries(j.credentials)) {",
+              "  pm.collectionVariables.set(name + \"_token\", c.access_token);",
+              "  pm.collectionVariables.set(name + \"_key\", c.api_key);",
+              "}",
+              "pm.collectionVariables.set(\"quota_denied\", \"false\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read transactions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/transactions"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Three transactions\", () => pm.expect(j.data.transactions.length).to.eql(3));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read invoices",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/invoices"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Three invoices\", () => pm.expect(j.data.invoices.length).to.eql(3));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconcile invoices via REST",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "rest-reconcile-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/reconciliations",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"reconciliation_id\", j.data.id);",
+              "pm.test(\"Two exact matches\", () => pm.expect(j.data.matches.length).to.eql(2));",
+              "pm.test(\"One unpaid invoice\", () => pm.expect(j.data.unpaid_invoice_ids).to.eql([\"inv-003\"]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ReconcileCo cannot prepare via REST",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "rest-batch-denied"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reconciliation_id\": \"{{reconciliation_id}}\",\n  \"invoice_ids\": [\n    \"inv-003\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "PayFlow prepares batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "rest-batch-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reconciliation_id\": \"{{reconciliation_id}}\",\n  \"invoice_ids\": [\n    \"inv-003\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"batch_id\", j.data.id);",
+              "pm.test(\"INR 20000 total\", () => pm.expect(j.data.total_minor).to.eql(2000000));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read batch",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches/{{batch_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Draft\", () => pm.expect(j.data.status).to.eql(\"DRAFT\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent cannot approve batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "agent-approval-denied"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches/{{batch_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Human approves simulation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_approver_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_approver_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "human-approval-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches/{{batch_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Simulation approval\", () => pm.expect(j.data.status).to.eql(\"APPROVED_FOR_SIMULATION\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Other tenant cannot read batch",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_other_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_other_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/business/payment-batches/{{batch_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([404]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"RESOURCE_NOT_FOUND\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Initialize MCP partner_reconcile",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"{{mcp_protocol_version}}\",\n    \"capabilities\": {},\n    \"clientInfo\": {\n      \"name\": \"bank-demo-postman\",\n      \"version\": \"1.0.0\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.expect(j.result.protocolVersion).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"partner_reconcile_protocol\", j.result.protocolVersion);",
+              "const session = pm.response.headers.get(\"Mcp-Session-Id\");",
+              "if (session) pm.collectionVariables.set(\"partner_reconcile_mcp_session\", session);",
+              "else pm.collectionVariables.unset(\"partner_reconcile_mcp_session\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Initialized notification partner_reconcile",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"notifications/initialized\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_reconcile_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_reconcile_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([202]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Discover tools partner_reconcile",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_reconcile_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_reconcile_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "const names = j.result.tools.map(t => t.name);",
+              "pm.test(\"Base tools present\", () => pm.expect(names).to.include.members([\"list_business_transactions\",\"list_business_invoices\",\"reconcile_invoices\"]));",
+              "pm.test(\"Payment preparation visibility\", () => pm.expect(names.includes(\"prepare_payment_batch\")).to.eql(false));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Initialize MCP partner_prepare",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"{{mcp_protocol_version}}\",\n    \"capabilities\": {},\n    \"clientInfo\": {\n      \"name\": \"bank-demo-postman\",\n      \"version\": \"1.0.0\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.expect(j.result.protocolVersion).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"partner_prepare_protocol\", j.result.protocolVersion);",
+              "const session = pm.response.headers.get(\"Mcp-Session-Id\");",
+              "if (session) pm.collectionVariables.set(\"partner_prepare_mcp_session\", session);",
+              "else pm.collectionVariables.unset(\"partner_prepare_mcp_session\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Initialized notification partner_prepare",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"notifications/initialized\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_prepare_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_prepare_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([202]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Discover tools partner_prepare",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_prepare_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_prepare_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "const names = j.result.tools.map(t => t.name);",
+              "pm.test(\"Base tools present\", () => pm.expect(names).to.include.members([\"list_business_transactions\",\"list_business_invoices\",\"reconcile_invoices\"]));",
+              "pm.test(\"Payment preparation visibility\", () => pm.expect(names.includes(\"prepare_payment_batch\")).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconcile using MCP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"reconcile_invoices\",\n    \"arguments\": {\n      \"request_id\": \"mcp-reconcile-1\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_prepare_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_prepare_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.expect(j.result.isError).not.to.eql(true);",
+              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.collectionVariables.set(\"mcp_reconciliation_id\", data.id);",
+              "pm.test(\"Two matched invoices\", () => pm.expect(data.matches.length).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Direct forbidden MCP call",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_reconcile_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_reconcile_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"prepare_payment_batch\",\n    \"arguments\": {\n      \"request_id\": \"mcp-batch-1\",\n      \"reconciliation_id\": \"{{mcp_reconciliation_id}}\",\n      \"invoice_ids\": [\n        \"inv-003\"\n      ]\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_reconcile_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_reconcile_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Allowed MCP batch preparation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"prepare_payment_batch\",\n    \"arguments\": {\n      \"request_id\": \"mcp-batch-1\",\n      \"reconciliation_id\": \"{{mcp_reconciliation_id}}\",\n      \"invoice_ids\": [\n        \"inv-003\"\n      ]\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_prepare_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_prepare_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.expect(j.result.isError).not.to.eql(true);",
+              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.test(\"Correct batch amount\", () => pm.expect(data.total_minor).to.eql(2000000));",
+              "pm.collectionVariables.set(\"mcp_batch_id\", data.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Retry MCP batch without duplication",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{partner_prepare_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{partner_prepare_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json, text/event-stream"
+          }
+        ],
+        "url": "{{gateway_url}}/tools/partners/mcp",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"prepare_payment_batch\",\n    \"arguments\": {\n      \"request_id\": \"mcp-batch-1\",\n      \"reconciliation_id\": \"{{mcp_reconciliation_id}}\",\n      \"invoice_ids\": [\n        \"inv-003\"\n      ]\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.request.headers.upsert({key:\"MCP-Protocol-Version\",value:pm.collectionVariables.get(\"partner_prepare_protocol\") || pm.environment.get(\"mcp_protocol_version\")});",
+              "const session = pm.collectionVariables.get(\"partner_prepare_mcp_session\");",
+              "if (session) pm.request.headers.upsert({key:\"Mcp-Session-Id\",value:session});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "\nconst raw = pm.response.text().trim();\nlet j = {};\nif (raw.startsWith(\"data:\") || raw.startsWith(\"event:\") || raw.startsWith(\":\")) {\n  const messages = raw.split(/\\r?\\n\\r?\\n/).map(block =>\n    block.split(/\\r?\\n/).filter(line => line.startsWith(\"data:\")).map(line => line.slice(5).trimStart()).join(\"\\n\")\n  ).filter(Boolean).filter(text => text !== \"[DONE]\").map(text => JSON.parse(text));\n  j = messages.find(x => x.id !== undefined && (x.result !== undefined || x.error !== undefined)) || {};\n} else if (raw) j = JSON.parse(raw);\n",
+              "pm.expect(j.result.isError).not.to.eql(true);",
+              "const data = j.result.structuredContent || JSON.parse(j.result.content.find(x=>x.type===\"text\").text);",
+              "pm.test(\"Correct batch amount\", () => pm.expect(data.total_minor).to.eql(2000000));",
+              "pm.test(\"Same batch\", () => pm.expect(data.id).to.eql(pm.collectionVariables.get(\"mcp_batch_id\")));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

@@ -1,0 +1,669 @@
+{
+  "info": {
+    "name": "01 AI banker — mock APIs and permissions",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Complete card freeze and dispute preparation flow; no LLM required.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "00 Create isolated synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario\": \"banker\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.expect(j.session_id).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"session_id\", j.session_id);",
+              "for (const [name, c] of Object.entries(j.credentials)) {",
+              "  pm.collectionVariables.set(name + \"_token\", c.access_token);",
+              "  pm.collectionVariables.set(name + \"_key\", c.api_key);",
+              "}",
+              "pm.collectionVariables.set(\"quota_denied\", \"false\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List owned cards",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Two owned cards\", () => pm.expect(j.data.cards.length).to.eql(2));",
+              "pm.test(\"Starts active\", () => pm.expect(j.data.cards[0].status).to.eql(\"ACTIVE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List card transactions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards/card-001/transactions"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Four transactions\", () => pm.expect(j.data.transactions.length).to.eql(4));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Other customer cannot read card",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_other_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_other_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards/card-001/transactions"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([404]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"RESOURCE_NOT_FOUND\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Propose freeze",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "freeze-proposal-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/action-proposals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"FREEZE_CARD\",\n  \"resource_id\": \"card-001\",\n  \"payload\": {\n    \"reason\": \"LOST\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"freeze_action\", j.data.action_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent cannot mint confirmation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "agent-confirm-denied"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/confirmations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{freeze_action}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Human confirms freeze",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{human_customer_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{human_customer_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "freeze-confirm-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/confirmations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{freeze_action}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"freeze_confirmation\", j.data.confirmation_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read-only client cannot freeze",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_readonly_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_readonly_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "readonly-freeze"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards/card-001/freeze",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{freeze_action}}\",\n  \"confirmation_id\": \"{{freeze_confirmation}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"TOOL_NOT_ALLOWED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Freeze card",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "freeze-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards/card-001/freeze",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{freeze_action}}\",\n  \"confirmation_id\": \"{{freeze_confirmation}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Card frozen\", () => pm.expect(j.data.status).to.eql(\"FROZEN\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Retry same freeze safely",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "freeze-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards/card-001/freeze",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{freeze_action}}\",\n  \"confirmation_id\": \"{{freeze_confirmation}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Same frozen result\", () => pm.expect(j.data.status).to.eql(\"FROZEN\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Propose dispute draft",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "dispute-proposal-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/action-proposals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"PREPARE_DISPUTE\",\n  \"resource_id\": \"txn-003\",\n  \"payload\": {\n    \"reason\": \"NOT_RECOGNIZED\",\n    \"customer_statement\": \"I do not recognize this purchase.\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"dispute_action\", j.data.action_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Human confirms dispute draft",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{human_customer_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{human_customer_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "dispute-confirm-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/confirmations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{dispute_action}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"dispute_confirmation\", j.data.confirmation_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prepare dispute draft",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "dispute-draft-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/disputes/drafts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action_id\": \"{{dispute_action}}\",\n  \"confirmation_id\": \"{{dispute_confirmation}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"dispute_id\", j.data.id);",
+              "pm.test(\"Fixture-derived amount\", () => pm.expect(j.data.amount_minor).to.eql(2499900));",
+              "pm.test(\"Draft only\", () => pm.expect(j.data.status).to.eql(\"DRAFT\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read draft",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/disputes/drafts/{{dispute_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Correct transaction\", () => pm.expect(j.data.transaction_id).to.eql(\"txn-003\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset restored card state",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{retail_full_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{retail_full_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/cards"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Active after reset\", () => pm.expect(j.data.cards[0].status).to.eql(\"ACTIVE\"));"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}

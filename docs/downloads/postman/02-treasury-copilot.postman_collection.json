@@ -1,0 +1,636 @@
+{
+  "info": {
+    "name": "02 Treasury — calculations and approvals",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Exact cash-flow results and two-person human approval tests; no LLM required.\nRun in order against the implemented contracts. Banking data is synthetic. Credentials are issued by the presenter-only harness. Do not share a used collection without clearing credential variables."
+  },
+  "item": [
+    {
+      "name": "00 Create isolated synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario\": \"treasury\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.expect(j.session_id).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"session_id\", j.session_id);",
+              "for (const [name, c] of Object.entries(j.credentials)) {",
+              "  pm.collectionVariables.set(name + \"_token\", c.access_token);",
+              "  pm.collectionVariables.set(name + \"_key\", c.api_key);",
+              "}",
+              "pm.collectionVariables.set(\"quota_denied\", \"false\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read position",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/position"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Opening cash\", () => pm.expect(j.data.available_cash_minor).to.eql(12000000));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read receivables",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/receivables"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Receivables count\", () => pm.expect(j.data.receivables.length).to.eql(3));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read payables",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/payables"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Payables count\", () => pm.expect(j.data.payables.length).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read facilities",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/facilities"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Facility availability\", () => pm.expect(j.data.facilities[0].available_minor).to.eql(20000000));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Baseline forecast",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "baseline-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/forecasts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_date\": \"2026-09-14\",\n  \"end_date\": \"2026-09-18\",\n  \"delays\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"No shortfall\", () => pm.expect(j.data.funding_required_minor).to.eql(0));",
+              "pm.test(\"Friday cash\", () => pm.expect(j.data.daily[4].closing_minor).to.eql(10000000));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "All three receivables delayed",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "delayed-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/forecasts",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_date\": \"2026-09-14\",\n  \"end_date\": \"2026-09-18\",\n  \"delays\": [\n    {\n      \"receivable_id\": \"rec-001\",\n      \"days\": 10\n    },\n    {\n      \"receivable_id\": \"rec-002\",\n      \"days\": 10\n    },\n    {\n      \"receivable_id\": \"rec-003\",\n      \"days\": 10\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"forecast_id\", j.data.id);",
+              "pm.test(\"INR 70000 shortfall\", () => pm.expect(j.data.funding_required_minor).to.eql(7000000));",
+              "pm.test(\"Exact daily balances\", () => pm.expect(j.data.daily.map(x => x.closing_minor)).to.eql([12000000,12000000,8000000,8000000,-7000000]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prepare funding proposal",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "funding-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"forecast_id\": \"{{forecast_id}}\",\n  \"facility_id\": \"facility-001\",\n  \"amount_minor\": 7000000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([201]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.collectionVariables.set(\"funding_id\", j.data.id);",
+              "pm.test(\"Pending approval\", () => pm.expect(j.data.status).to.eql(\"PENDING_APPROVAL\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Maker cannot self-approve via human client",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_human_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_human_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "self-approval-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([403]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"SELF_APPROVAL_FORBIDDEN\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "First distinct approver",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_approver_1_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_approver_1_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "approval-1"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Still pending\", () => pm.expect(j.data.status).to.eql(\"PENDING_APPROVAL\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Same person cannot approve twice",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_approver_1_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_approver_1_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "approval-1-second-key"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([409]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"ALREADY_APPROVED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Second distinct approver",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_approver_2_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_approver_2_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "approval-2"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}/approvals",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Simulation approved\", () => pm.expect(j.data.status).to.eql(\"APPROVED_FOR_SIMULATION\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read proposal",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Two approvals\", () => pm.expect(j.data.approvals.length).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Foreign tenant cannot read proposal",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_other_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_other_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/funding-proposals/{{funding_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([404]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"Expected error code\", () => pm.expect(j.error.code).to.eql(\"RESOURCE_NOT_FOUND\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cash unchanged by simulation approval",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{treasury_maker_token}}"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{treasury_maker_key}}"
+          }
+        ],
+        "url": "{{gateway_url}}/bank/v1/treasury/position"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};",
+              "pm.test(\"No actual draw\", () => pm.expect(j.data.available_cash_minor).to.eql(12000000));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reset synthetic session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Demo-Admin-Key",
+            "value": "{{demo_admin_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{harness_url}}/demo/v1/sessions/{{session_id}}/reset",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected HTTP status\", () => pm.expect([200]).to.include(pm.response.code));",
+              "const j = pm.response.text().trim() ? pm.response.json() : {};"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": []
+}
